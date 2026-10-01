@@ -1,0 +1,1 @@
+- [Telegram gift upgrades](telegram-gift-upgrades.md) — `upgrade_star_count` marks upgradeability; total Stars cost combines base and upgrade, then `sendGift` uses `pay_for_upgrade`.

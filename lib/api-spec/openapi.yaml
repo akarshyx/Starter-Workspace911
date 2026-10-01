@@ -24,8 +24,176 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /telegram/status:
+    get:
+      operationId: getTelegramStatus
+      tags: [telegram]
+      summary: Get Telegram bot and Stars status
+      responses:
+        "200":
+          description: Telegram bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramStatusResponse"
+        "502":
+          description: Telegram Bot API request failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /telegram/gifts:
+    get:
+      operationId: getTelegramGifts
+      tags: [telegram]
+      summary: List available Telegram gifts
+      responses:
+        "200":
+          description: Available gifts and collectible upgrade costs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramGiftsResponse"
+        "502":
+          description: Telegram Bot API request failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /telegram/gifts/send:
+    post:
+      operationId: sendTelegramGift
+      tags: [telegram]
+      summary: Send an approved gift with its collectible upgrade
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TelegramGiftSendInput"
+      responses:
+        "200":
+          description: Gift sent and upgraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramGiftSendResponse"
+        "400":
+          description: Invalid request or gift cannot be upgraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Request did not originate from the app
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Gift is unavailable or the bot balance is too low
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Telegram Bot API request failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
+    TelegramStatusResponse:
+      type: object
+      properties:
+        botName:
+          type: string
+        botUsername:
+          type: string
+        starBalance:
+          type: integer
+          minimum: 0
+      required: [botName, botUsername, starBalance]
+    TelegramGift:
+      type: object
+      properties:
+        id:
+          type: string
+        emoji:
+          type: ["string", "null"]
+        starCost:
+          type: integer
+          minimum: 0
+        upgradeCost:
+          type: ["integer", "null"]
+          minimum: 0
+        totalCost:
+          type: integer
+          minimum: 0
+        remainingCount:
+          type: ["integer", "null"]
+          minimum: 0
+        totalCount:
+          type: ["integer", "null"]
+          minimum: 0
+        upgradeable:
+          type: boolean
+      required:
+        - id
+        - emoji
+        - starCost
+        - upgradeCost
+        - totalCost
+        - remainingCount
+        - totalCount
+        - upgradeable
+    TelegramGiftsResponse:
+      type: object
+      properties:
+        gifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TelegramGift"
+      required: [gifts]
+    TelegramGiftSendInput:
+      type: object
+      properties:
+        giftId:
+          type: string
+          minLength: 1
+        recipientId:
+          type: integer
+          minimum: 1
+        approved:
+          type: boolean
+      required: [giftId, recipientId, approved]
+    TelegramGiftSendResponse:
+      type: object
+      properties:
+        giftId:
+          type: string
+        recipientId:
+          type: integer
+        starsSpent:
+          type: integer
+          minimum: 0
+        remainingBalance:
+          type: integer
+          minimum: 0
+      required: [giftId, recipientId, starsSpent, remainingBalance]
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
     HealthStatus:
       type: object
       properties:

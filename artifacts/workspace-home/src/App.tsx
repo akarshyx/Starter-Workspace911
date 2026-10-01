@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { ClerkProvider, Show, SignIn, SignUp, useClerk } from '@clerk/react';
+import { publishableKeyFromHost } from '@clerk/react/internal';
+import { shadcn } from '@clerk/themes';
+import {
+  getGetTelegramGiftsQueryKey,
+  getGetTelegramStatusQueryKey,
+  useGetTelegramGifts,
+  useGetTelegramStatus,
+  useSendTelegramGift,
+  type TelegramGift,
+} from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -21,11 +32,21 @@ import {
   X,
   Trash2,
   Pencil,
+  Gift,
+  Coins,
+  ArrowUpRight,
+  ShieldCheck,
+  RefreshCw,
+  Send,
+  CircleCheck,
+  CircleAlert,
 } from 'lucide-react';
 import {
   Route,
+  Redirect,
   Switch,
   useLocation,
+  Link,
   Router as WouterRouter,
 } from 'wouter';
 
@@ -309,6 +330,10 @@ function Home() {
             <span className="rail-icon"><Folder size={15} /></span>
             <span>All work</span>
           </button>
+          <Link href="/collectibles" className="rail-link rail-collectibles-link" data-testid="link-collectibles">
+            <span className="rail-icon"><Gift size={16} /></span>
+            <span>Collectibles</span>
+          </Link>
         </nav>
 
         <div className="rail-divider" />
@@ -359,7 +384,7 @@ function Home() {
           <div className="crumb" data-testid="text-current-view">
             <span>Workspace</span>
             <ArrowRight size={12} />
-            <strong>{projectFilter === 'all' ? (viewMode === 'open' ? 'Today' : 'All work') : projectById.get(projectFilter)?.name}</strong>
+              <strong>{projectFilter === 'all' ? (viewMode === 'open' ? 'Today' : 'All work') : projectById.get(projectFilter)?.name}</strong>
           </div>
           <div className="topbar-right">
             <span className="local-status"><span className="status-dot" /> Saved on this device</span>
@@ -667,14 +692,417 @@ function Home() {
   );
 }
 
-function Router() {
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const clerkPubKey = publishableKeyFromHost(
+  window.location.hostname,
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+
+function stripBase(path: string) {
+  return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path;
+}
+
+const clerkAppearance = {
+  theme: shadcn,
+  cssLayerName: 'clerk',
+  options: {
+    logoPlacement: 'inside' as const,
+    logoLinkUrl: basePath || '/',
+    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+  },
+  variables: {
+    colorPrimary: '#355646',
+    colorForeground: '#2b3f35',
+    colorMutedForeground: '#748078',
+    colorDanger: '#bd5545',
+    colorBackground: '#f8f6ef',
+    colorInput: '#fbfaf4',
+    colorInputForeground: '#2b3f35',
+    colorNeutral: '#d9d8cc',
+    fontFamily: '"Avenir Next", "Trebuchet MS", sans-serif',
+    borderRadius: '0.8rem',
+  },
+  elements: {
+    rootBox: 'w-full flex justify-center',
+    cardBox: 'bg-[#f8f6ef] rounded-2xl w-[440px] max-w-full overflow-hidden',
+    card: '!shadow-none !border-0 !bg-transparent !rounded-none',
+    footer: '!shadow-none !border-0 !bg-transparent !rounded-none',
+    headerTitle: 'text-[#2b3f35] font-semibold',
+    headerSubtitle: 'text-[#748078]',
+    socialButtonsBlockButtonText: 'text-[#2b3f35] font-medium',
+    formFieldLabel: 'text-[#405448] font-medium',
+    footerActionLink: 'text-[#355646] font-semibold',
+    footerActionText: 'text-[#748078]',
+    dividerText: 'text-[#748078]',
+    identityPreviewEditButton: 'text-[#355646]',
+    formFieldSuccessText: 'text-[#355646]',
+    alertText: 'text-[#8e4138]',
+    logoBox: 'rounded-xl',
+    logoImage: 'object-contain',
+    socialButtonsBlockButton: 'border-[#deddd2] bg-[#fbfaf4] hover:bg-[#f1efe5]',
+    formButtonPrimary: 'bg-[#355646] hover:bg-[#284638] text-[#f8f6ef]',
+    formFieldInput: 'border-[#deddd2] bg-[#fbfaf4] text-[#2b3f35]',
+    footerAction: 'text-[#748078]',
+    dividerLine: 'bg-[#e1ded3]',
+    alert: 'border-[#e7c5ba] bg-[#fbf0eb]',
+    otpCodeFieldInput: 'border-[#deddd2] bg-[#fbfaf4] text-[#2b3f35]',
+    formFieldRow: 'gap-2',
+    main: 'gap-5',
+  },
+};
+
+function Landing() {
   return (
-    <RoutedErrorBoundary>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route component={NotFound} />
-      </Switch>
-    </RoutedErrorBoundary>
+    <main className="landing-page">
+      <header className="landing-header">
+        <Link href="/" className="brand landing-brand">
+          <span className="brand-mark" aria-hidden="true"><Leaf size={18} strokeWidth={2.1} /></span>
+          <span className="brand-name">daymark</span>
+        </Link>
+        <nav className="landing-nav" aria-label="Account navigation">
+          <Link href="/sign-in" className="landing-signin">Sign in</Link>
+          <Link href="/sign-up" className="landing-cta">Make your space <ArrowUpRight size={15} /></Link>
+        </nav>
+      </header>
+      <section className="landing-hero">
+        <div className="landing-orbit landing-orbit-one" />
+        <div className="landing-orbit landing-orbit-two" />
+        <div className="landing-copy">
+          <div className="eyebrow"><span className="eyebrow-line" />A workspace for one</div>
+          <h1>Make room<br />for <em>what matters.</em></h1>
+          <p>Daymark is a small, steady place for your projects, next steps, and the ideas you don’t want to lose.</p>
+          <div className="landing-actions">
+            <Link href="/sign-up" className="landing-cta landing-cta-large">Start with a blank page <ArrowUpRight size={16} /></Link>
+            <Link href="/sign-in" className="landing-text-link">I already have a space <ArrowRight size={14} /></Link>
+          </div>
+          <div className="landing-footnote"><LockKeyhole size={13} /> Your work stays yours. Projects are saved in this browser.</div>
+        </div>
+        <div className="landing-scene" aria-hidden="true">
+          <div className="scene-sheet">
+            <div className="scene-top"><span>MONDAY, 09:14</span><span className="scene-dot" /></div>
+            <h2>Today, gently.</h2>
+            <p>A little room to think clearly.</p>
+            <div className="scene-task"><span className="scene-check" /> Make the first thing real</div>
+            <div className="scene-task"><span className="scene-check" /> Send a note to Mira</div>
+            <div className="scene-progress"><span /></div>
+            <div className="scene-bottom"><span>ONE SMALL STEP</span><span>01 / 03</span></div>
+          </div>
+          <div className="scene-stamp">A softer<br />way forward</div>
+        </div>
+      </section>
+      <section className="landing-ribbon" aria-label="Daymark principles">
+        <div><span>01</span><strong>One person, one clear space</strong></div>
+        <div><span>02</span><strong>Small steps still count</strong></div>
+        <div><span>03</span><strong>Keep your pace your own</strong></div>
+      </section>
+      <section className="landing-detail">
+        <div className="detail-mark"><ListTodo size={20} /></div>
+        <div><p className="detail-kicker">A place to come back to</p><h2>Less managing your tools.<br /><em>More making your thing.</em></h2></div>
+        <p className="detail-copy">Keep the projects you care about close, break the next move into something kind-sized, and let the rest wait without guilt.</p>
+        <Link href="/sign-up" className="detail-link">Create your workspace <ArrowRight size={14} /></Link>
+      </section>
+      <footer className="landing-footer"><span>daymark</span><span>A little space to make.</span></footer>
+    </main>
+  );
+}
+
+function HomeRedirect() {
+  return (
+    <>
+      <Show when="signed-in"><Redirect to="/user-portal" /></Show>
+      <Show when="signed-out"><Landing /></Show>
+    </>
+  );
+}
+
+function ProtectedWorkspace() {
+  return (
+    <>
+      <Show when="signed-in"><Home /></Show>
+      <Show when="signed-out"><Redirect to="/" /></Show>
+    </>
+  );
+}
+
+function safeTelegramError(error: unknown) {
+  if (typeof error === 'object' && error !== null) {
+    const data = 'data' in error ? error.data : error;
+    if (typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string') {
+      return data.error.replace(/(?:\d{6,}:[A-Za-z0-9_-]{20,})/g, '[redacted]').slice(0, 220);
+    }
+  }
+  return 'Telegram could not complete that request. Please try again.';
+}
+
+function GiftPicker() {
+  const statusQuery = useGetTelegramStatus();
+  const giftsQuery = useGetTelegramGifts();
+  const mutation = useSendTelegramGift();
+  const queryClient = useQueryClient();
+  const [recipientId, setRecipientId] = useState('');
+  const [selectedGiftId, setSelectedGiftId] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const gifts = giftsQuery.data?.gifts ?? [];
+  const status = statusQuery.data;
+  const recommendation = useMemo(() => {
+    const balance = status?.starBalance ?? -1;
+    return gifts
+      .filter((gift) => gift.upgradeable && gift.totalCost <= balance && (gift.remainingCount === null || gift.remainingCount > 0))
+      .sort((a, b) => a.totalCost - b.totalCost)[0];
+  }, [gifts, status?.starBalance]);
+  const selectedGift = gifts.find((gift) => gift.id === selectedGiftId) ?? recommendation;
+  const parsedRecipientId = Number(recipientId);
+  const validRecipient = Number.isSafeInteger(parsedRecipientId) && parsedRecipientId > 0;
+  const isCollectibleReady = (gift: TelegramGift) => gift.upgradeable;
+  const affordable = !!selectedGift && isCollectibleReady(selectedGift) && !!status && selectedGift.totalCost <= status.starBalance;
+
+  function retryAll() {
+    void statusQuery.refetch();
+    void giftsQuery.refetch();
+  }
+
+  function sendApprovedGift() {
+    if (!selectedGift || !validRecipient || !affordable || mutation.isPending) return;
+    mutation.mutate(
+      { data: { giftId: selectedGift.id, recipientId: parsedRecipientId, approved: true } },
+      {
+        onSuccess: (response) => {
+          setSuccessMessage(`Gift sent. ${response.starsSpent} Stars used; the balance is refreshing.`);
+          setReviewOpen(false);
+          setRecipientId('');
+          void queryClient.invalidateQueries({ queryKey: getGetTelegramStatusQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetTelegramGiftsQueryKey() });
+        },
+      },
+    );
+  }
+
+  const loading = statusQuery.isLoading || giftsQuery.isLoading;
+  const queryError = statusQuery.error || giftsQuery.error;
+
+  return (
+    <div className="collectibles-page">
+      <aside className="rail collectibles-rail" aria-label="Workspace navigation">
+        <div>
+          <Link href="/user-portal" className="brand">
+            <span className="brand-mark" aria-hidden="true"><Leaf size={18} strokeWidth={2.1} /></span>
+            <span className="brand-name">daymark</span>
+          </Link>
+          <p className="brand-note">A little space to make</p>
+        </div>
+        <div className="rail-divider" />
+        <p className="rail-label">Your workspace</p>
+        <nav className="rail-nav" aria-label="Workspace">
+          <Link href="/user-portal" className="rail-link" data-testid="link-workspace"><span className="rail-icon"><ListTodo size={16} /></span><span>Workspace</span></Link>
+          <Link href="/collectibles" className="rail-link active" aria-current="page" data-testid="link-collectibles-current"><span className="rail-icon"><Gift size={16} /></span><span>Collectibles</span></Link>
+        </nav>
+        <div className="rail-bottom">
+          <div className="local-note"><div className="local-note-title"><ShieldCheck size={13} /> Deliberate by design</div><p>Every gift is reviewed before it is sent. Nothing happens from a selection alone.</p></div>
+        </div>
+      </aside>
+      <main className="collectibles-main">
+        <header className="collectibles-topbar">
+          <div className="crumb"><Link href="/user-portal">Workspace</Link><ArrowRight size={12} /><strong>Collectibles</strong></div>
+          <Link href="/user-portal" className="back-workspace"><ArrowRight size={14} /> Back to workspace</Link>
+        </header>
+        <section className="collectibles-intro">
+          <div className="eyebrow"><span className="eyebrow-line" />Telegram gifts</div>
+          <h1>Send something<br /><em>worth keeping.</em></h1>
+          <p>Compare the live catalog, check the bot’s Star balance, then approve one collectible gift for its recipient.</p>
+        </section>
+
+        {loading ? (
+          <section className="telegram-skeleton" aria-label="Loading Telegram account">
+            <div className="skeleton-block balance-skeleton" /><div className="skeleton-block catalog-skeleton" />
+            <span className="sr-only">Loading Telegram status and gift catalog</span>
+          </section>
+        ) : queryError ? (
+          <section className="telegram-error" role="alert">
+            <CircleAlert size={19} /><div><h2>Telegram data is unavailable</h2><p>{safeTelegramError(statusQuery.error ?? giftsQuery.error)}</p><button className="retry-button" onClick={retryAll}><RefreshCw size={14} /> Try again</button></div>
+          </section>
+        ) : (
+          <>
+            <section className="telegram-account">
+              <div className="account-identity">
+                <span className="account-mark"><Send size={17} /></span>
+                <div><p>Connected Telegram bot</p><h2>{status?.botName ?? 'Telegram bot'}</h2><span>@{status?.botUsername}</span></div>
+              </div>
+              <div className="balance-block"><span>Available balance</span><strong data-testid="text-star-balance">{status?.starBalance.toLocaleString() ?? '—'}</strong><small><Coins size={13} /> Stars</small></div>
+              <button className="refresh-button" onClick={retryAll} aria-label="Refresh Telegram data" data-testid="button-refresh-telegram"><RefreshCw size={15} /></button>
+            </section>
+            <div className="picker-layout">
+              <section className="catalog-column" aria-labelledby="catalog-title">
+                <div className="catalog-heading"><div><p className="section-overline">Live Telegram catalog</p><h2 id="catalog-title">Available gifts <span>{gifts.length}</span></h2></div><span className="live-indicator"><i /> Live data</span></div>
+                {recommendation && (
+                  <div className="recommendation-banner">
+                    <span className="recommendation-icon"><CircleCheck size={16} /></span>
+                    <div><strong>A thoughtful pick</strong><p>We recommend the lowest-cost upgradeable gift within your current balance.</p></div>
+                    <button onClick={() => setSelectedGiftId(recommendation.id)} data-testid="button-use-recommendation">Choose this</button>
+                  </div>
+                )}
+                {gifts.length ? (
+                  <div className="gift-grid" data-testid="list-telegram-gifts">
+                    {gifts.map((gift) => (
+                      <GiftCard
+                        key={gift.id}
+                        gift={gift}
+                        balance={status?.starBalance ?? 0}
+                        selected={selectedGift?.id === gift.id}
+                        recommended={recommendation?.id === gift.id}
+                        onSelect={() => { setSelectedGiftId(gift.id); setSuccessMessage(''); setReviewOpen(false); }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="gift-empty"><Gift size={20} /><h3>No gifts in the live catalog</h3><p>Refresh in a moment to check whether Telegram has added any.</p></div>
+                )}
+              </section>
+              <aside className="send-panel" aria-labelledby="send-title">
+                <div className="send-panel-heading"><span className="send-step">01</span><div><p className="section-overline">Prepare a gift</p><h2 id="send-title">Recipient &amp; review</h2></div></div>
+                <label className="recipient-label" htmlFor="telegram-recipient">Telegram recipient ID</label>
+                <input id="telegram-recipient" className="recipient-input" type="number" min="1" step="1" inputMode="numeric" placeholder="For example, 284901726" value={recipientId} onChange={(event) => { setRecipientId(event.target.value); setSuccessMessage(''); }} data-testid="input-recipient-id" />
+                <p className="field-note">Use the numeric ID for the person receiving the gift.</p>
+                <div className="selected-summary">
+                  <span className="summary-label">Selected gift</span>
+                  {selectedGift ? (
+                    <div className="summary-gift">
+                      <GiftArtwork gift={selectedGift} large />
+                      <div><strong>{giftTitle(selectedGift)}</strong><span>Collectible upgrade</span></div>
+                    </div>
+                  ) : <p className="summary-empty">Choose an available gift from the catalog.</p>}
+                  {selectedGift && <div className="cost-lines"><span>Gift cost <strong>{selectedGift.starCost} Stars</strong></span><span>Collectible upgrade <strong>{selectedGift.upgradeCost ?? 0} Stars</strong></span><span className="cost-total">Total <strong>{selectedGift.totalCost} Stars</strong></span></div>}
+                </div>
+                {!affordable && selectedGift && <p className="balance-warning"><CircleAlert size={14} /> This gift exceeds the available Star balance.</p>}
+                <button className="review-button" onClick={() => { setReviewOpen(true); setSuccessMessage(''); }} disabled={!selectedGift || !validRecipient || !affordable || mutation.isPending} data-testid="button-review-gift">
+                  Review gift details <ArrowRight size={15} />
+                </button>
+                <div className="trust-note"><ShieldCheck size={15} /><p>Review first. Telegram receives nothing until you explicitly approve the final send.</p></div>
+                {successMessage && <div className="success-message" role="status"><CircleCheck size={16} /><span>{successMessage}</span></div>}
+                {mutation.error && <div className="mutation-error" role="alert"><CircleAlert size={15} />{safeTelegramError(mutation.error)}</div>}
+              </aside>
+            </div>
+          </>
+        )}
+        {reviewOpen && selectedGift && (
+          <div className="review-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setReviewOpen(false); }}>
+            <section className="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-dialog-title">
+              <button className="review-close" aria-label="Close review" onClick={() => setReviewOpen(false)}><X size={17} /></button>
+              <span className="review-emblem"><ShieldCheck size={20} /></span>
+              <p className="section-overline">Final confirmation</p>
+              <h2 id="review-dialog-title">Approve this gift?</h2>
+              <p className="review-copy">You are about to send a collectible gift to recipient <strong>{recipientId}</strong>.</p>
+              <div className="review-gift-card"><GiftArtwork gift={selectedGift} large /><div><strong>{giftTitle(selectedGift)}</strong><span>{selectedGift.totalCost} Stars total</span></div></div>
+              <p className="review-disclaimer">This action sends the gift through Telegram and cannot be undone.</p>
+              <button className="approve-button" onClick={sendApprovedGift} disabled={mutation.isPending} data-testid="button-approve-send">
+                {mutation.isPending ? 'Sending gift…' : 'Approve & send gift'} <ArrowUpRight size={15} />
+              </button>
+              <button className="cancel-review" onClick={() => setReviewOpen(false)} disabled={mutation.isPending}>Not yet, go back</button>
+              {mutation.error && <p className="review-error" role="alert">{safeTelegramError(mutation.error)}</p>}
+            </section>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function giftTitle(gift: TelegramGift) {
+  return gift.emoji ? `Telegram gift ${gift.id}` : `Gift ${gift.id}`;
+}
+
+function GiftArtwork({ gift, large = false }: { gift: TelegramGift; large?: boolean }) {
+  return (
+    <span className={`gift-art ${large ? 'gift-art-large' : ''}`} aria-label={gift.emoji ? 'Telegram gift artwork' : undefined}>
+      {gift.emoji || <Gift size={large ? 23 : 20} />}
+    </span>
+  );
+}
+
+function GiftCard({ gift, balance, selected, recommended, onSelect }: { gift: TelegramGift; balance: number; selected: boolean; recommended: boolean; onSelect: () => void }) {
+  const available = gift.remainingCount === null || gift.remainingCount > 0;
+  const upgradeable = gift.upgradeable;
+  const affordable = gift.totalCost <= balance;
+  return (
+    <button
+      className={`gift-card ${selected ? 'selected' : ''} ${!available || !affordable || !upgradeable ? 'unavailable' : ''}`}
+      onClick={onSelect}
+      disabled={!available || !upgradeable}
+      aria-pressed={selected}
+      data-testid={`card-gift-${gift.id}`}
+    >
+      <span className="gift-card-top"><GiftArtwork gift={gift} /><span className={`gift-selection ${selected ? 'checked' : ''}`}>{selected && <Check size={12} />}</span></span>
+      <strong className="gift-card-name">{giftTitle(gift)}</strong>
+      <span className="gift-card-cost"><Coins size={12} /> {gift.totalCost} Stars</span>
+      <span className="gift-card-meta">{upgradeable ? `Upgrade +${gift.upgradeCost} Stars` : 'Not upgradeable'}</span>
+      <span className="gift-card-stock">{gift.remainingCount === null ? 'Availability not limited' : `${gift.remainingCount.toLocaleString()} of ${gift.totalCount?.toLocaleString() ?? '—'} remaining`}</span>
+      {recommended && <span className="gift-recommended">Recommended</span>}
+      {!affordable && <span className="gift-unaffordable">Over balance</span>}
+    </button>
+  );
+}
+
+function TelegramRoute() {
+  return (
+    <>
+      <Show when="signed-in"><GiftPicker /></Show>
+      <Show when="signed-out"><Redirect to="/" /></Show>
+    </>
+  );
+}
+
+function SignInPage() {
+  return <main className="auth-page"><div className="auth-shell"><Link href="/" className="auth-back"><ArrowRight size={14} /> Back to Daymark</Link><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div></main>;
+}
+
+function SignUpPage() {
+  return <main className="auth-page"><div className="auth-shell"><Link href="/" className="auth-back"><ArrowRight size={14} /> Back to Daymark</Link><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div></main>;
+}
+
+function ClerkQueryClientCacheInvalidator() {
+  const { addListener } = useClerk();
+  const client = useQueryClient();
+  const previousUserId = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const unsubscribe = addListener(({ user }) => {
+      const nextId = user?.id ?? null;
+      if (previousUserId.current !== undefined && previousUserId.current !== nextId) client.clear();
+      previousUserId.current = nextId;
+    });
+    return unsubscribe;
+  }, [addListener, client]);
+  return null;
+}
+
+function ClerkRoutes() {
+  const [, setLocation] = useLocation();
+  return (
+    <ClerkProvider
+      publishableKey={clerkPubKey}
+      proxyUrl={clerkProxyUrl}
+      appearance={clerkAppearance}
+      signInUrl={`${basePath}/sign-in`}
+      signUpUrl={`${basePath}/sign-up`}
+      localization={{
+        signIn: { start: { title: 'Welcome back', subtitle: 'Sign in to return to your space' } },
+        signUp: { start: { title: 'Make a little space', subtitle: 'Create your personal Daymark workspace' } },
+      }}
+      routerPush={(to) => setLocation(stripBase(to))}
+      routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
+    >
+      <ClerkQueryClientCacheInvalidator />
+      <RoutedErrorBoundary>
+        <Switch>
+          <Route path="/" component={HomeRedirect} />
+          <Route path="/user-portal" component={ProtectedWorkspace} />
+          <Route path="/collectibles" component={TelegramRoute} />
+          <Route path="/sign-in/*?" component={SignInPage} />
+          <Route path="/sign-up/*?" component={SignUpPage} />
+          <Route component={NotFound} />
+        </Switch>
+      </RoutedErrorBoundary>
+    </ClerkProvider>
   );
 }
 
@@ -684,11 +1112,12 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  if (!clerkPubKey) throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in environment.');
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+        <WouterRouter base={basePath}>
+          <ClerkRoutes />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>
