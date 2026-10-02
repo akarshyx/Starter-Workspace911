@@ -13,6 +13,11 @@ const PREMIUM_PLANS: Record<string, PremiumPlan> = {
   "/premium_year": { months: 12, starCost: 2500 },
 };
 
+type BotRuntimeState = {
+  awaitingRecipientId: Map<number, PremiumPlan>;
+  receiptGroupId: number | null;
+};
+
 type TelegramEnvelope<T> = {
   ok: boolean;
   result?: T;
@@ -105,6 +110,7 @@ async function sendPremiumGift(
   ownerChatId: number,
   recipientId: number,
   plan: PremiumPlan,
+  receiptGroupId: number | null,
 ): Promise<void> {
   let balance: TelegramStarBalance;
   try {
@@ -188,13 +194,47 @@ async function sendPremiumGift(
     return;
   }
 
+  let groupReceiptPosted = false;
+  if (receiptGroupId !== null) {
+    try {
+      await sendMessage(
+        token,
+        receiptGroupId,
+        [
+          "Telegram Premium gift — send confirmed",
+          `Recipient user ID: ${recipientId}`,
+          `Plan: ${plan.months} months`,
+          `Stars charged: ${plan.starCost.toLocaleString()}`,
+          "Telegram Bot API reported success.",
+          "This is a bot send receipt, not a screenshot of the recipient's chat.",
+          `Time (UTC): ${new Date().toISOString()}`,
+        ].join("\n"),
+      );
+      groupReceiptPosted = true;
+    } catch (error) {
+      logger.warn(
+        {
+          telegramStatus:
+            error instanceof TelegramBotApiError
+              ? error.telegramStatus
+              : undefined,
+        },
+        "Could not post the Telegram Premium receipt to the configured group",
+      );
+    }
+  }
+
   await sendMessage(
     token,
     ownerChatId,
-      `The ${plan.months}-month Telegram Premium gift was sent successfully to user ID ${recipientId}. ${plan.starCost.toLocaleString()} Stars used.`,
+    `The ${plan.months}-month Telegram Premium gift was sent successfully to user ID ${recipientId}. ${plan.starCost.toLocaleString()} Stars used.${receiptGroupId === null ? " No receipt group is configured; use /set_receipt_group in the middleman group to post receipts there." : groupReceiptPosted ? " The Bot API receipt was posted to the configured group." : " The gift was sent, but the receipt could not be posted to the configured group."}`,
   );
   logger.info(
-    { months: plan.months, starCost: plan.starCost },
+    {
+      months: plan.months,
+      starCost: plan.starCost,
+      groupReceiptPosted,
+    },
     "Telegram Premium gift sent",
   );
 }
@@ -203,7 +243,7 @@ async function handleUpdate(
   token: string,
   ownerId: number,
   update: TelegramUpdate,
-  awaitingRecipientId: Map<number, PremiumPlan>,
+  state: BotRuntimeState,
 ): Promise<void> {
   const message = update.message;
   const senderId = message?.from?.id;
@@ -212,7 +252,7 @@ async function handleUpdate(
 
   const command = commandName(text);
   if (senderId !== ownerId) {
-    if (command in PREMIUM_PLANS) {
+    if (command in PREMIUM_PLANS || command === "/set_receipt_group") {
       await sendMessage(
         token,
         message.chat.id,
@@ -223,6 +263,16 @@ async function handleUpdate(
   }
 
   if (message.chat.type !== "private") {
+    if (command === "/set_receipt_group") {
+      state.receiptGroupId = message.chat.id;
+      await sendMessage(
+        token,
+        message.chat.id,
+        "This group will receive a bot-generated receipt after each successful Premium send. Re-run /set_receipt_group here if the bot restarts.",
+      );
+      return;
+    }
+
     if (command in PREMIUM_PLANS) {
       await sendMessage(
         token,
@@ -235,7 +285,7 @@ async function handleUpdate(
 
   const selectedPlan = PREMIUM_PLANS[command];
   if (selectedPlan) {
-    awaitingRecipientId.set(message.chat.id, selectedPlan);
+    state.awaitingRecipientId.set(message.chat.id, selectedPlan);
     await sendMessage(
       token,
       message.chat.id,
@@ -244,8 +294,23 @@ async function handleUpdate(
     return;
   }
 
+  if (command === "/set_receipt_group") {
+    await sendMessage(
+      token,
+      message.chat.id,
+      "Add the bot to the middleman group, then send /set_receipt_group in that group.",
+    );
+    return;
+  }
+
+  if (command === "/clear_receipt_group") {
+    state.receiptGroupId = null;
+    await sendMessage(token, message.chat.id, "Group receipts are disabled.");
+    return;
+  }
+
   if (command === "/cancel") {
-    if (awaitingRecipientId.delete(message.chat.id)) {
+    if (state.awaitingRecipientId.delete(message.chat.id)) {
       await sendMessage(token, message.chat.id, "Premium gift cancelled.");
     } else {
       await sendMessage(
@@ -261,12 +326,12 @@ async function handleUpdate(
     await sendMessage(
       token,
       message.chat.id,
-      "Use /premium to send 3 months of Premium, or /premium_year to send 12 months.",
+      "Use /premium for 3 months or /premium_year for 12 months. Use /set_receipt_group in a group to post send receipts there.",
     );
     return;
   }
 
-  const plan = awaitingRecipientId.get(message.chat.id);
+  const plan = state.awaitingRecipientId.get(message.chat.id);
   if (!plan) return;
 
   const recipientId = parseTelegramId(text);
@@ -279,8 +344,14 @@ async function handleUpdate(
     return;
   }
 
-  awaitingRecipientId.delete(message.chat.id);
-  await sendPremiumGift(token, message.chat.id, recipientId, plan);
+  state.awaitingRecipientId.delete(message.chat.id);
+  await sendPremiumGift(
+    token,
+    message.chat.id,
+    recipientId,
+    plan,
+    state.receiptGroupId,
+  );
 }
 
 function enqueueUpdates(
@@ -303,7 +374,10 @@ async function pollUpdates(token: string, ownerId: number): Promise<void> {
   let offset: number | undefined;
   const queue: TelegramUpdate[] = [];
   const queuedIds = new Set<number>();
-  const awaitingRecipientId = new Map<number, PremiumPlan>();
+  const state: BotRuntimeState = {
+    awaitingRecipientId: new Map<number, PremiumPlan>(),
+    receiptGroupId: null,
+  };
 
   while (true) {
     try {
@@ -341,7 +415,7 @@ async function pollUpdates(token: string, ownerId: number): Promise<void> {
       offset = nextOffset;
       enqueueUpdates(queue, queuedIds, laterUpdates);
 
-      await handleUpdate(token, ownerId, update, awaitingRecipientId);
+      await handleUpdate(token, ownerId, update, state);
     } catch (error) {
       if (error instanceof TelegramBotApiError) {
         logger.warn(
