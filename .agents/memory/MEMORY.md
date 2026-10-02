@@ -1,1 +1,2 @@
 - [Telegram gift upgrades](telegram-gift-upgrades.md) — `upgrade_star_count` marks upgradeability; total Stars cost combines base and upgrade, then `sendGift` uses `pay_for_upgrade`.
+- [Telegram bot Stars spending](telegram-bot-stars.md) — Premium uses `giftPremiumSubscription`; incoming commands need one active receiver and an owner-only spend guard.
